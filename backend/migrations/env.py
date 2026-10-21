@@ -2,7 +2,8 @@ from getpass import getpass
 import logging
 
 from alembic import context
-from sqlalchemy import create_engine, pool
+from sqlalchemy import MetaData, create_engine, pool
+from sqlalchemy.schema import BLANK_SCHEMA
 from sqlalchemy.engine import URL
 from app.models.user_session import UserSession
 from app.core.config import settings
@@ -16,7 +17,19 @@ logging.basicConfig(
     format="%(levelname)s %(name)s %(message)s",
 )
 
-target_metadata = Base.metadata
+def normalize_referred_schema(table, to_schema, constraint, referred_schema):
+    return BLANK_SCHEMA if referred_schema == "public" else referred_schema
+
+
+# PostgreSQL reflects the default public schema as None. Compare a metadata
+# copy using that same convention, without changing the runtime ORM models.
+target_metadata = MetaData(naming_convention=Base.metadata.naming_convention)
+for model_table in Base.metadata.sorted_tables:
+    model_table.to_metadata(
+        target_metadata,
+        schema=None if model_table.schema == "public" else model_table.schema,
+        referred_schema_fn=normalize_referred_schema,
+    )
 
 
 def include_name(name, type_, parent_names):
@@ -40,7 +53,25 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def configure_connection(connection) -> None:
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        version_table_schema="migrations",
+        include_schemas=True,
+        include_name=include_name,
+        compare_type=True,
+    )
+    with context.begin_transaction():
+        context.run_migrations()
+
+
 def run_migrations_online() -> None:
+    supplied_connection = context.config.attributes.get("connection")
+    if supplied_connection is not None:
+        configure_connection(supplied_connection)
+        return
+
     password = getpass(
         f"Migration: {settings.db_host}:{settings.db_port}/"
         f"{settings.db_name}; password for ppt_admin: "
@@ -65,16 +96,7 @@ def run_migrations_online() -> None:
     )
     try:
         with migration_engine.connect() as connection:
-            context.configure(
-                connection=connection,
-                target_metadata=target_metadata,
-                version_table_schema="migrations",
-                include_schemas=True,
-                include_name=include_name,
-                compare_type=True,
-            )
-            with context.begin_transaction():
-                context.run_migrations()
+            configure_connection(connection)
     finally:
         migration_engine.dispose()
 
