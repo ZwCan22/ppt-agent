@@ -1,4 +1,4 @@
-name: Task access CI
+name: Backend integration CI
 
 on:
   push:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   task-access-tests:
-    name: Task access integration tests
+    name: PostgreSQL integration tests
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -58,5 +58,5 @@ jobs:
           python -m pip install --only-binary=:all: -r requirements.lock.txt
           python -m pip check
 
-      - name: Run task access tests
+      - name: Run API, auth, concurrency, worker and migration tests
         run: python -B -m unittest discover -s integration_tests -t . -v
