@@ -10,7 +10,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-storage/
+/backend/storage/
 logs/
 /backups/
 
