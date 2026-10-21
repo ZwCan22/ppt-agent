@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+pydantic-settings
+sqlalchemy>=2.0,<2.1
+psycopg[binary]>=3.2,<4
+alembic>=1.16,<2
+httpx
+python-pptx
+pwdlib[argon2]

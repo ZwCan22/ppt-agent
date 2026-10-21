@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+.env
+.env.*
+!.env.example
+
+.idea/
+.pytest_cache/
+.ruff_cache/
+
+storage/
+logs/
+/backups/
+
+# 前端依赖和构建产物
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# 本地生成的输出
+outputs/
+.build-cache/

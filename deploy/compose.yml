@@ -1,0 +1,168 @@
+name: ppt-agent
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ppt_agent
+      POSTGRES_USER: ppt_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在deploy/.env中填写POSTGRES_PASSWORD}
+
+    ports:
+      - "127.0.0.1:15432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ppt_admin -d ppt_agent"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  api:
+    image: ppt-agent-backend:dev
+    pull_policy: never
+    restart: unless-stopped
+
+    # Container addresses override the local development settings in /app/.env.
+    environment:
+      PPT_APP_ENV: development
+      PPT_DB_HOST: postgres
+      PPT_DB_PORT: "5432"
+      PPT_DB_NAME: ppt_agent
+      PPT_DB_USER: ppt_app
+      PPT_DIFY_BASE_URL: http://host.docker.internal/v1
+      PPT_STORAGE_DIR: /app/storage
+      PPT_LOG_DIR: /app/logs
+
+    ports:
+      - "127.0.0.1:18001:8001"
+
+    volumes:
+      # Python reads the existing dotenv file at runtime, preserving its quoting.
+      - type: bind
+        source: ../backend/.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      # Keep existing downloads available; only the Worker needs write access.
+      - type: bind
+        source: ../backend/storage
+        target: /app/storage
+        read_only: true
+        bind:
+          create_host_path: false
+      - backend_logs:/app/logs
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.build_opener(urllib.request.ProxyHandler({})).open(
+          "http://127.0.0.1:8001/api/health", timeout=3).close()
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  worker:
+    image: ppt-agent-backend:dev
+    pull_policy: never
+    command: ["python", "worker.py"]
+    restart: unless-stopped
+    # Match the existing KeyboardInterrupt cleanup when stopping this process.
+    stop_signal: SIGINT
+    stop_grace_period: 30s
+
+    environment:
+      PPT_APP_ENV: development
+      PPT_DB_HOST: postgres
+      PPT_DB_PORT: "5432"
+      PPT_DB_NAME: ppt_agent
+      PPT_DB_USER: ppt_app
+      PPT_DIFY_BASE_URL: http://host.docker.internal/v1
+      PPT_STORAGE_DIR: /app/storage
+      PPT_LOG_DIR: /app/logs
+
+    volumes:
+      - type: bind
+        source: ../backend/.env
+        target: /app/.env
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../backend/storage
+        target: /app/storage
+        read_only: false
+        bind:
+          create_host_path: false
+      - backend_logs:/app/logs
+      # A one-off readiness check uses this file before starting the Worker.
+      - type: bind
+        source: ./worker_preflight.py
+        target: /app/worker_preflight.py
+        read_only: true
+        bind:
+          create_host_path: false
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "python", "-m", "app.core.worker_health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+
+  frontend:
+    image: ppt-agent-frontend:dev
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres_data:
+  backend_logs:
